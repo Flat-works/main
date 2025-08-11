@@ -1,0 +1,369 @@
+import React, { useState, useEffect } from "react";
+
+// Heart Tune - Single-file React app (Tailwind CSS required)
+// Usage:
+// 1) Create a React app (e.g. with create-react-app or Vite)
+// 2) Install and configure Tailwind CSS (or use CDN during prototyping)
+// 3) Replace src/App.jsx with this file and run the dev server
+// Notes about the booking system:
+// - Bookings are stored locally in localStorage (works out-of-the-box, no backend required)
+// - When a booking is made users can download an .ics calendar file or open a Google Calendar event link
+// - You can later replace the localStorage logic with an API call to your server or a service like Calendly
+
+export default function App() {
+  // sample projects (replace with real images/description)
+  const sampleProjects = [
+    {
+      id: 1,
+      title: "Boxer Turbo Conversion",
+      tags: ["Motor", "Turbo", "Boxer"],
+      desc: "Kompletter Turbo-Umbau f&uuml;r mehr Leistung und Drehmoment.",
+      img: "https://images.unsplash.com/photo-1511918984145-48de785d4c4b?auto=format&fit=crop&w=1200&q=60",
+    },
+    {
+      id: 2,
+      title: "Classic Restomod",
+      tags: ["Karosserie", "Innenraum"],
+      desc: "Retro-Look mit moderner Fahrwerks- und Motortechnik.",
+      img: "https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?auto=format&fit=crop&w=1200&q=60",
+    },
+    {
+      id: 3,
+      title: "Track Prep & Setup",
+      tags: ["Fahrwerk", "Setup"],
+      desc: "Fahrwerksoptimierung und Track-Setup mit Achsvermessung.",
+      img: "https://images.unsplash.com/photo-1542367597-ef0b2b02a3d6?auto=format&fit=crop&w=1200&q=60",
+    },
+  ];
+
+  // booking state
+  const [appointments, setAppointments] = useState(() => {
+    try {
+      const raw = localStorage.getItem("ht_appointments");
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("ht_appointments", JSON.stringify(appointments));
+  }, [appointments]);
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("09:00");
+  const [service, setService] = useState("Inspektion");
+  const [message, setMessage] = useState("");
+  const [filter, setFilter] = useState("All");
+
+  // simple validation and overlap check
+  function isSlotAvailable(dateStr, timeStr) {
+    // check if appointment exists with same date & time
+    return !appointments.some(
+      (a) => a.date === dateStr && a.time === timeStr
+    );
+  }
+
+  function handleBook(e) {
+    e.preventDefault();
+    if (!name || !email || !date || !time) {
+      alert("Bitte f&uuml;lle Name, E-Mail, Datum und Uhrzeit aus.");
+      return;
+    }
+    if (!isSlotAvailable(date, time)) {
+      alert("Dieser Termin ist leider bereits belegt. Bitte w&auml;hle einen anderen Zeitpunkt.");
+      return;
+    }
+
+    const newAppt = {
+      id: Date.now(),
+      name,
+      email,
+      phone,
+      date,
+      time,
+      service,
+      message,
+      createdAt: new Date().toISOString(),
+    };
+
+    setAppointments((s) => [...s, newAppt]);
+
+    // clear form
+    setName("");
+    setEmail("");
+    setPhone("");
+    setDate("");
+    setTime("09:00");
+    setService("Inspektion");
+    setMessage("");
+
+    // offer ICS download/open google calendar
+    const ics = buildICS(newAppt);
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `HeartTune-Termin-${newAppt.date}-${newAppt.time}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    alert("Termin erstellt! Eine ICS-Datei wurde heruntergeladen. Du findest den Termin auch in eurer &Uuml;bersicht.");
+  }
+
+  function buildICS(appt) {
+    // Simple ICS generator
+    const start = new Date(`${appt.date}T${appt.time}`);
+    const end = new Date(start.getTime() + 60 * 60 * 1000); // 1 hour
+    const toICSDate = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    return [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Heart Tune//Termin//DE",
+      "BEGIN:VEVENT",
+      `UID:${appt.id}@hearttune.local`,
+      `DTSTAMP:${toICSDate(new Date())}`,
+      `DTSTART:${toICSDate(start)}`,
+      `DTEND:${toICSDate(end)}`,
+      `SUMMARY:Heart Tune - ${appt.service}`,
+      `DESCRIPTION:Name: ${appt.name}\\nTel: ${appt.phone}\\nE-Mail: ${appt.email}\\nMessage: ${appt.message}`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+  }
+
+  function googleCalendarLink(appt) {
+    const start = new Date(`${appt.date}T${appt.time}`);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const fmt = (d) => d.toISOString().replace(/[-:]|\.\d{3}/g, "");
+    const dates = `${fmt(start)}/${fmt(end)}`;
+    const text = encodeURIComponent(`Heart Tune - ${appt.service}`);
+    const details = encodeURIComponent(`Name: ${appt.name}\\nTel: ${appt.phone}\\nE-Mail: ${appt.email}`);
+    const location = encodeURIComponent("Heart Tune Werkstatt");
+    return `https://www.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}&sf=true&output=xml`;
+  }
+
+  function cancelAppointment(id) {
+    if (!confirm("Termin wirklich l&ouml;schen?")) return;
+    setAppointments((s) => s.filter((a) => a.id !== id));
+  }
+
+  // generate available time slots for a given date (simple fixed slots)
+  function availableSlotsFor(dateStr) {
+    const slots = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
+    return slots.filter((t) => isSlotAvailable(dateStr, t));
+  }
+
+  // UI
+  return (
+    <div className="min-h-screen bg-gray-100 text-gray-900">
+      <header className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 text-white p-6">
+        <div className="container mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center font-bold">HT</div>
+            <div>
+              <h1 className="text-2xl font-extrabold">Heart Tune</h1>
+              <p className="text-sm opacity-90">Wo Emotion auf Technik trifft.</p>
+            </div>
+          </div>
+          <nav className="hidden md:flex gap-6 items-center font-medium">
+            <a href="#projects" className="hover:underline">Projekte</a>
+            <a href="#services" className="hover:underline">Leistungen</a>
+            <a href="#booking" className="hover:underline">Termin buchen</a>
+            <a href="#contact" className="hover:underline">Kontakt</a>
+          </nav>
+        </div>
+      </header>
+
+      <main className="container mx-auto p-6">
+        {/* Hero */}
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center mb-8">
+          <div>
+            <h2 className="text-4xl font-extrabold mb-3">Wir bringen deine Maschine zum Singen.</h2>
+            <p className="mb-4 opacity-90">Spezialisiert auf Boxer-Motoren & handwerkliches Tuning — Leistung, Gef&uuml;hl und Zuverl&auml;ssigkeit.</p>
+            <a href="#booking" className="inline-block bg-black text-white px-5 py-3 rounded-2xl font-semibold">Termin buchen</a>
+          </div>
+          <div className="rounded-xl overflow-hidden shadow-lg">
+            <img src="https://images.unsplash.com/photo-1511918984145-48de785d4c4b?auto=format&fit=crop&w=1400&q=60" alt="hero" className="w-full h-64 object-cover" />
+          </div>
+        </section>
+
+        {/* Projects */}
+        <section id="projects" className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-2xl font-bold">Unsere Projekte</h3>
+            <div className="flex gap-2">
+              <button onClick={() => setFilter("All")} className={`px-3 py-1 rounded ${filter === 'All' ? 'bg-black text-white' : 'bg-white'}`}>Alle</button>
+              <button onClick={() => setFilter("Motor")} className={`px-3 py-1 rounded ${filter === 'Motor' ? 'bg-black text-white' : 'bg-white'}`}>Motor</button>
+              <button onClick={() => setFilter("Karosserie")} className={`px-3 py-1 rounded ${filter === 'Karosserie' ? 'bg-black text-white' : 'bg-white'}`}>Karosserie</button>
+              <button onClick={() => setFilter("Fahrwerk")} className={`px-3 py-1 rounded ${filter === 'Fahrwerk' ? 'bg-black text-white' : 'bg-white'}`}>Fahrwerk</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {sampleProjects.filter(p => filter === 'All' || p.tags.includes(filter)).map(p => (
+              <article key={p.id} className="bg-white rounded-xl overflow-hidden shadow">
+                <img src={p.img} alt={p.title} className="w-full h-40 object-cover" />
+                <div className="p-4">
+                  <h4 className="font-bold text-lg">{p.title}</h4>
+                  <p className="text-sm opacity-80 mt-2">{p.desc}</p>
+                  <div className="mt-3 flex gap-2">
+                    {p.tags.map(t => (
+                      <span key={t} className="text-xs px-2 py-1 bg-gray-100 rounded">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* Services */}
+        <section id="services" className="mb-10">
+          <h3 className="text-2xl font-bold mb-4">Leistungen</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h4 className="font-semibold">Motor & Performance</h4>
+              <p className="text-sm opacity-80 mt-2">Turbo-Umr&uuml;stungen, Mapping, Motortuning speziell f&uuml;r Boxer-Motoren.</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h4 className="font-semibold">Fahrwerk & Handling</h4>
+              <p className="text-sm opacity-80 mt-2">Gewindefahrwerke, Achsvermessung, Track-Setups.</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h4 className="font-semibold">Karosserie & Innenraum</h4>
+              <p className="text-sm opacity-80 mt-2">Lackierungen, Custom-Interieur & Restaurationen.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Booking */}
+        <section id="booking" className="mb-10">
+          <h3 className="text-2xl font-bold mb-4">Termin buchen</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <form onSubmit={handleBook} className="bg-white p-6 rounded-xl shadow">
+              <label className="block text-sm font-medium">Name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} className="w-full border p-2 rounded mt-1 mb-3" />
+
+              <label className="block text-sm font-medium">E-Mail</label>
+              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full border p-2 rounded mt-1 mb-3" />
+
+              <label className="block text-sm font-medium">Telefon</label>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border p-2 rounded mt-1 mb-3" />
+
+              <label className="block text-sm font-medium">Datum</label>
+              <input value={date} onChange={(e) => setDate(e.target.value)} type="date" className="w-full border p-2 rounded mt-1 mb-3" />
+
+              <label className="block text-sm font-medium">Uhrzeit</label>
+              <select value={time} onChange={(e) => setTime(e.target.value)} className="w-full border p-2 rounded mt-1 mb-3">
+                <option>09:00</option>
+                <option>10:00</option>
+                <option>11:00</option>
+                <option>13:00</option>
+                <option>14:00</option>
+                <option>15:00</option>
+                <option>16:00</option>
+              </select>
+
+              <label className="block text-sm font-medium">Service</label>
+              <select value={service} onChange={(e) => setService(e.target.value)} className="w-full border p-2 rounded mt-1 mb-3">
+                <option>Inspektion</option>
+                <option>Motor & Tuning</option>
+                <option>Fahrwerk</option>
+                <option>Lack & Karosserie</option>
+                <option>Individuelle Beratung</option>
+              </select>
+
+              <label className="block text-sm font-medium">Nachricht</label>
+              <textarea value={message} onChange={(e) => setMessage(e.target.value)} className="w-full border p-2 rounded mt-1 mb-3" rows={3} />
+
+              <button className="w-full bg-black text-white py-3 rounded-2xl font-semibold">Termin anfragen</button>
+
+              <p className="text-xs mt-3 opacity-80">Hinweis: Dies ist ein prototypisches Buchungssystem. Termine werden lokal gespeichert. F&uuml;r automatische Erinnerungen & besseres Management l&auml;sst sich das System mit Google Calendar API oder Calendly integrieren.</p>
+            </form>
+
+            <div className="md:col-span-2">
+              <div className="bg-white p-4 rounded-xl shadow mb-6">
+                <h4 className="font-bold mb-2">Verf&uuml;gbare Slots</h4>
+                <p className="text-sm opacity-80">W&auml;hle ein Datum im Formular, um freie Slots anzuzeigen.</p>
+                {date ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {availableSlotsFor(date).length === 0 ? (
+                      <div className="col-span-3 text-sm opacity-80">Keine freien Slots an diesem Tag.</div>
+                    ) : (
+                      availableSlotsFor(date).map((s) => (
+                        <div key={s} className="p-2 border rounded text-center">{s}</div>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm opacity-80 mt-3">Bitte zuerst ein Datum ausw&auml;hlen.</div>
+                )}
+              </div>
+
+              <div className="bg-white p-4 rounded-xl shadow">
+                <h4 className="font-bold mb-2">Termin&uuml;bersicht</h4>
+                {appointments.length === 0 ? (
+                  <p className="text-sm opacity-80">Noch keine Termine.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {appointments.slice().reverse().map((a) => (
+                      <div key={a.id} className="p-3 border rounded flex justify-between items-start">
+                        <div>
+                          <div className="font-semibold">{a.service} — {a.date} {a.time}</div>
+                          <div className="text-sm opacity-80">{a.name} — {a.email} — {a.phone}</div>
+                          <div className="text-xs mt-1 opacity-80">{a.message}</div>
+                          <div className="mt-2 flex gap-2">
+                            <a href={googleCalendarLink(a)} target="_blank" rel="noreferrer" className="text-xs underline">In Google Calendar &ouml;ffnen</a>
+                            <button onClick={() => { const ics = buildICS(a); const blob = new Blob([ics], { type: 'text/calendar' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `HeartTune-Termin-${a.date}-${a.time}.ics`; link.click(); URL.revokeObjectURL(url); }} className="text-xs underline">ICS herunterladen</button>
+                            <button onClick={() => cancelAppointment(a.id)} className="text-xs underline text-red-600">L&ouml;schen</button>
+                          </div>
+                        </div>
+                        <div className="text-right text-xs opacity-70">Erstellt: {new Date(a.createdAt).toLocaleString()}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Contact */}
+        <section id="contact" className="mb-10">
+          <h3 className="text-2xl font-bold mb-4">Kontakt</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-xl shadow">
+              <h4 className="font-bold">Adresse & &Ouml;ffnungszeiten</h4>
+              <p className="mt-2 text-sm opacity-80">Heart Tune Werkstatt<br />Beispielstra&szlig;e 12<br />12345 Musterstadt</p>
+              <p className="mt-3 text-sm"><strong>Mo–Fr:</strong> 09:00–18:00<br /><strong>Sa:</strong> nach Vereinbarung</p>
+              <p className="mt-3 text-sm">Telefon: <a href="tel:+491234567890" className="underline">+49 123 4567890</a></p>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow">
+              <h4 className="font-bold">Schnellkontakt</h4>
+              <p className="text-sm opacity-80 mb-3">Du kannst uns auch per E-Mail oder WhatsApp erreichen.</p>
+              <a className="inline-block bg-green-600 text-white px-4 py-2 rounded mr-2" href="mailto:info@hearttune.example">E-Mail</a>
+              <a className="inline-block bg-green-500 text-white px-4 py-2 rounded" href="https://wa.me/491234567890" target="_blank" rel="noreferrer">WhatsApp</a>
+            </div>
+          </div>
+        </section>
+
+        {/* About */}
+        <section className="mb-16">
+          <h3 className="text-2xl font-bold mb-4">&Uuml;ber uns</h3>
+          <div className="bg-white p-6 rounded-xl shadow">
+            <p className="opacity-90">Heart Tune ist eine spezialisierte Werkstatt mit Fokus auf Boxer-Motoren. Wir kombinieren pr&auml;zise Technik mit Leidenschaft — jedes Projekt ist f&uuml;r uns ein Herzensprojekt.</p>
+          </div>
+        </section>
+
+      </main>
+
+      <footer className="bg-white border-t p-6">
+        <div className="container mx-auto text-center opacity-80">&copy; {new Date().getFullYear()} Heart Tune — Wo Emotion auf Technik trifft.</div>
+      </footer>
+    </div>
+  );
+}
